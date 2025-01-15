@@ -12,6 +12,8 @@ const PdfProcessor = () => {
   const fileInputRef = useRef(null);
   const [extractedText, setExtractedText] = useState("");
 
+  console.log("extractedText", extractedText);
+
   const handleDragEnter = (e) => {
     e.preventDefault();
     setIsDragging(true);
@@ -57,15 +59,27 @@ const PdfProcessor = () => {
       const formData = new FormData();
       formData.append("pdf", file);
 
-      // In the next phase, we'll add the API endpoint
-      // For now, simulate text extraction
-      setTimeout(() => {
-        setExtractedText(
-          "Sample extracted text from PDF...\nProcessing content..."
-        );
-      }, 1000);
+      setExtractedText("Processing PDF...");
+
+      const response = await fetch("/api/extractPdf", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      console.log("result", result);
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to extract PDF content");
+      }
+
+      setExtractedText(result.text || "No content extracted");
     } catch (error) {
       console.error("Error extracting PDF content:", error);
+      setExtractedText(
+        `Error: ${error.message || "Failed to extract content from PDF"}`
+      );
     }
   };
 
