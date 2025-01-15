@@ -1,137 +1,84 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import pdf from "pdf-parse";
-import { v4 as uuidv4 } from "uuid";
-import {
-  createEmbedding,
-  storeInPinecone,
-} from "../../../../utils/pinecone-client";
+import connectMongoDB from "../../../../utils/mongoDB";
+import { searchInPinecone } from "../../../../utils/pineconeConfig";
+import FileUpload from "../../../../models/FileUpload";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-function chunkText(text, chunkSize = 1000) {
-  const chunks = [];
-  const sentences = text.split(/[.!?]+\s+/);
-  let currentChunk = "";
-
-  for (const sentence of sentences) {
-    if ((currentChunk + sentence).length > chunkSize && currentChunk) {
-      chunks.push(currentChunk.trim());
-      currentChunk = sentence;
-    } else {
-      currentChunk += (currentChunk ? " " : "") + sentence;
-    }
-  }
-
-  if (currentChunk) {
-    chunks.push(currentChunk.trim());
-  }
-
-  return chunks;
+// Function to vectorize the query text
+async function vectorizeQuery(query) {
+  const response = await openAi.embeddings.create({
+    model: "text-embedding-ada-002", // Adjust the model as per your requirements
+    input: query,
+    encoding_format: "float", // Ensure the format matches what Pinecone expects
+  });
+  // Extract and return the embedding vector
+  return response.data[0].embedding;
 }
 
 export async function POST(req) {
   try {
-    const formData = await req.formData();
-    const pdfFile = formData.get("pdf");
+    const { query } = await req.json();
 
-    if (!pdfFile) {
-      return NextResponse.json(
-        { error: "No PDF file provided" },
-        { status: 400 }
-      );
-    }
+    // Connect to MongoDB
+    await connectMongoDB();
 
-    // Convert file to buffer and extract text
-    const buffer = Buffer.from(await pdfFile.arrayBuffer());
-    const { text } = await pdf(buffer);
+    // Vectorize the search query
+    const queryVector = await vectorizeQuery(query);
 
-    // Split into chunks
-    const chunks = chunkText(text);
-    const documentId = uuidv4();
+    // Search in Pinecone
+    const searchResults = await searchInPinecone(queryVector);
 
-    let allAnalysis = [];
+    // Get the ids from the search results
+    const ids = searchResults.map((result) => result.id);
 
-    // Process each chunk
-    for (const [index, chunk] of chunks.entries()) {
-      try {
-        // Create embedding
-        const embedding = await createEmbedding(openai, chunk);
+    // Fetch the files (now chunks) from MongoDB using the ids
+    const chunks = await FileUpload.find({
+      _id: { $in: ids.map((id) => new mongoose.Types.ObjectId(id)) },
+    }).exec();
 
-        // Store in Pinecone
-        await storeInPinecone(`${documentId}-${index}`, chunk, embedding);
+    // Construct an array of content from the chunks
+    const contentFromChunks = chunks.map((chunk, index) => ({
+      fileName: chunk.fileName,
+      chunkText: chunk.chunkText,
+      chunkIndex: chunk.chunkIndex,
+    }));
 
-        // Analyze with GPT-4
-        const analysis = await openai.chat.completions.create({
-          model: "gpt-4o-2024-08-06",
-          messages: [
-            {
-              role: "system",
-              content: "Extract key information from this text segment.",
-            },
-            {
-              role: "user",
-              content: chunk,
-            },
-          ],
-          max_tokens: 500,
-        });
+    // Sort the chunks by chunkIndex to maintain the order
+    contentFromChunks.sort((a, b) => a.chunkIndex - b.chunkIndex);
 
-        console.log("analysis", analysis);
+    // Create a combined text from sorted chunks to send to OpenAI for further processing
+    const combinedText = contentFromChunks.map((c) => c.chunkText);
 
-        allAnalysis.push(analysis.choices[0].message.content);
-      } catch (error) {
-        console.error(`Error processing chunk ${index}:`, error);
-      }
-    }
-
-    // Combine analyses
-    const finalSummary = await openai.chat.completions.create({
-      model: "gpt-4o-2024-08-06",
+    const response = await openAi.chat.completions.create({
       messages: [
         {
           role: "system",
           content:
-            "Create a structured summary of the analyzed document segments.",
+            "You are an intelligent assistant and you answer to user's questions in not more than 40 words based on the existing content " +
+            "the relevant content for this query are:\n" +
+            combinedText.join("\n"),
         },
-        {
-          role: "user",
-          content: allAnalysis.join("\n\n"),
-        },
+        { role: "user", content: query },
       ],
-      max_tokens: 1000,
+      model: "gpt-4o-2024-08-06",
+      temperature: 0.9,
+      max_tokens: 4000,
     });
 
-    console.log("finalSummary", finalSummary);
-
-    return new NextResponse(
-      JSON.stringify({
-        text: finalSummary.choices[0].message.content,
-        documentId,
-        status: "success",
-      }),
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    // Return the data as a JSON response
+    return NextResponse.json(response.choices[0].message);
   } catch (error) {
     console.error("PDF processing error:", error);
-    return new NextResponse(
-      JSON.stringify({
-        error: "Failed to process PDF",
-        details: error.message,
-      }),
+    return NextResponse.json(
       {
-        status: 500,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
+        error: error.message,
+        status: "error",
+      },
+      { status: 500 }
     );
   }
 }

@@ -4,6 +4,8 @@ import React, { useState, useRef } from "react";
 import styles from "./PdfProcessor.module.scss";
 import { FaFileUpload } from "react-icons/fa";
 import PdfViewer from "../chunks/PdfViewer/PdfViewer";
+import axios from "../../axios/api";
+import axios2 from "../../axios/api2";
 
 const PdfProcessor = () => {
   const [isDragging, setIsDragging] = useState(false);
@@ -56,30 +58,36 @@ const PdfProcessor = () => {
 
   const extractPdfContent = async (file) => {
     try {
-      const formData = new FormData();
-      formData.append("pdf", file);
-
-      setExtractedText("Processing PDF...");
-
-      const response = await fetch("/api/extractPdf", {
-        method: "POST",
-        body: formData,
+      const saveData = new FormData();
+      Array.from([file]).forEach((file) => {
+        saveData.append("files", file);
       });
 
-      const result = await response.json();
+      setExtractedText("Processing PDF...");
+      console.log("Uploading PDF file...");
 
-      console.log("result", result);
+      const response = await axios.post("saveFiles", saveData);
+      console.log("API Response:", response.data);
 
-      if (!response.ok) {
-        throw new Error(result.error || "Failed to extract PDF content");
+      if (response.data.error) {
+        throw new Error(response.data.error);
       }
 
-      setExtractedText(result.text || "No content extracted");
+      const aiAnalysis = await axios2.post("extractPdf", {
+        query: "Give me an analysis report",
+      });
+
+      setExtractedText(aiAnalysis.data || "No content extracted");
     } catch (error) {
       console.error("Error extracting PDF content:", error);
       setExtractedText(
         `Error: ${error.message || "Failed to extract content from PDF"}`
       );
+    } finally {
+      setTimeout(() => {
+        // Add any refresh logic if needed
+        console.log("Upload complete");
+      }, 1000);
     }
   };
 
