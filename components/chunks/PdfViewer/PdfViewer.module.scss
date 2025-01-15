@@ -1,0 +1,97 @@
+.pdfViewer {
+  display: flex;
+  gap: 20px;
+  padding: 20px;
+  height: calc(100vh - 200px);
+  width: 90%;
+  margin: 0 auto;
+
+  .pdfContainer {
+    flex: 1;
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+
+    .document {
+      width: 100%;
+      height: 100%;
+      border: none;
+      border-radius: 5px;
+    }
+  }
+
+  .extractedContent {
+    width: 400px;
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+
+    h3 {
+      margin: 0 0 15px 0;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #eee;
+      font-size: 18px;
+      color: #333;
+    }
+
+    .contentBox {
+      flex: 1;
+      overflow-y: auto;
+      background: #f8f8f8;
+      padding: 15px;
+      border-radius: 5px;
+
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        font-family: monospace;
+        font-size: 14px;
+        line-height: 1.5;
+        color: #333;
+      }
+    }
+
+    .loader {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100%;
+      color: #666;
+      font-size: 14px;
+    }
+  }
+
+  @media (max-width: 1024px) {
+    flex-direction: column;
+    height: auto;
+
+    .extractedContent {
+      width: 100%;
+      height: 400px;
+    }
+  }
+
+  @media (max-width: 768px) {
+    padding: 10px;
+    gap: 15px;
+
+    .pdfContainer {
+      padding: 15px;
+    }
+
+    .extractedContent {
+      height: 300px;
+      padding: 15px;
+
+      h3 {
+        font-size: 16px;
+        margin-bottom: 10px;
+      }
+    }
+  }
+}
