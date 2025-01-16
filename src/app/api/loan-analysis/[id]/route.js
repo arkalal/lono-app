@@ -16,6 +16,8 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+export const runtime = "edge";
+
 async function getRelevantDocuments(query) {
   // Vectorize the query
   const queryVector = await vectorizeText(query);

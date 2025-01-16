@@ -10,6 +10,8 @@ import FileUpload from "../../../../models/FileUpload";
 import Tesseract from "tesseract.js";
 import PDFParser from "pdf2json";
 
+export const runtime = "edge";
+
 const MAX_TOKENS = 200; // Define the max tokens for each chunk
 
 // Utility to get the number of tokens - replace with actual token counting if necessary
