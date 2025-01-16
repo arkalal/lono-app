@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import styles from "./LoanApplicationForm.module.scss";
 import axios from "../../../axios/api";
+import { useRouter } from "next/navigation";
 
 const LoanApplicationForm = () => {
   const [formData, setFormData] = useState({
@@ -22,6 +23,8 @@ const LoanApplicationForm = () => {
   const [applicationId, setApplicationId] = useState(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
+  const router = useRouter();
+
   const handleAnalyze = async () => {
     if (!applicationId) return;
 
@@ -29,12 +32,7 @@ const LoanApplicationForm = () => {
     try {
       const response = await axios.post(`loan-analysis/${applicationId}`);
       if (response.data.success) {
-        // You can handle the analysis result here
-        // For now, we'll just log it
-        console.log("Analysis completed:", response.data.analysis);
-
-        // You can redirect to the dashboard or show analysis
-        // router.push(`/dashboard/${applicationId}`);
+        router.push(`/dashboard/${applicationId}`);
       }
     } catch (error) {
       console.error("Error analyzing application:", error);

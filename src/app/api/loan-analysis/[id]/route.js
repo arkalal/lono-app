@@ -7,6 +7,7 @@ import LoanApplication from "../../../../../models/LoanApplication";
 import FileUpload from "../../../../../models/FileUpload";
 import LoanAnalysis from "../../../../../models/LoanAnalysis";
 import {
+  deleteFromPinecone,
   searchInPinecone,
   vectorizeText,
 } from "../../../../../utils/pineconeConfig";
@@ -37,10 +38,20 @@ async function getRelevantDocuments(query) {
     .join("\n");
 }
 
-export async function POST(req, { params }) {
+export async function POST(req) {
   try {
     await connectMongoDB();
-    const { id } = params;
+
+    // Get params from request URL
+    const url = req.url;
+    const id = url.split("/").pop(); // Extract ID from URL
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "ID parameter is required" },
+        { status: 400 }
+      );
+    }
 
     const application = await LoanApplication.findById(id);
     if (!application) {
@@ -249,6 +260,99 @@ export async function POST(req, { params }) {
     console.error("Error in loan analysis:", error);
     return NextResponse.json(
       { error: error.message || "Analysis failed" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET(req) {
+  try {
+    const url = req.url;
+    const id = url.split("/").pop();
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "ID parameter is required" },
+        { status: 400 }
+      );
+    }
+
+    await connectMongoDB();
+    const analysis = await LoanAnalysis.findOne({
+      applicationId: id,
+    })
+      .populate("applicationId")
+      .exec();
+
+    if (!analysis) {
+      return NextResponse.json(
+        { error: "Analysis not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      analysis: analysis.analysis,
+    });
+  } catch (error) {
+    console.error("Error fetching analysis:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to fetch analysis" },
+      { status: 500 }
+    );
+  }
+}
+
+// Add DELETE method for cleaning up application data
+export async function DELETE(req, { params }) {
+  try {
+    await connectMongoDB();
+    const { id } = params;
+
+    // Find application first
+    const application = await LoanApplication.findById(id);
+    if (!application) {
+      return NextResponse.json(
+        { error: "Application not found" },
+        { status: 404 }
+      );
+    }
+
+    // Get all chunk IDs from documents
+    const chunkIds = [
+      ...application.documents.payslips.flatMap((doc) => doc.chunkIds),
+      ...application.documents.bankStatements.flatMap((doc) => doc.chunkIds),
+      ...(application.documents.panCard?.chunkIds || []),
+      ...(application.documents.aadhaarCard?.chunkIds || []),
+    ];
+
+    // Delete chunks and vectors
+    await Promise.all(
+      chunkIds.map(async (chunkId) => {
+        try {
+          await FileUpload.findByIdAndDelete(chunkId);
+          await deleteFromPinecone(chunkId.toString());
+        } catch (error) {
+          console.error(`Error deleting chunk ${chunkId}:`, error);
+        }
+      })
+    );
+
+    // Delete analysis
+    await LoanAnalysis.findOneAndDelete({ applicationId: id });
+
+    // Delete application
+    await LoanApplication.findByIdAndDelete(id);
+
+    return NextResponse.json({
+      success: true,
+      message: "Application and related data deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting application:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to delete application" },
       { status: 500 }
     );
   }
