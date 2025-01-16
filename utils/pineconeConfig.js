@@ -57,9 +57,22 @@ async function deleteFromPinecone(id) {
   }
 }
 
+async function deleteAllFromPinecone() {
+  try {
+    // Delete all vectors in the index
+    const response = await index.deleteAll();
+    console.log("Deleted all vectors from Pinecone:", response);
+    return response;
+  } catch (error) {
+    console.error("Error deleting all vectors from Pinecone:", error);
+    throw error;
+  }
+}
+
 export {
   upsertToPinecone,
   searchInPinecone,
   vectorizeText,
   deleteFromPinecone,
+  deleteAllFromPinecone,
 };

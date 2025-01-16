@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  deleteAllFromPinecone,
   deleteFromPinecone,
   upsertToPinecone,
   vectorizeText,
@@ -158,10 +159,31 @@ export async function GET() {
 }
 
 export async function DELETE(req) {
-  const id = req.nextUrl.searchParams.get("id");
-  await connectMongoDB();
-  await FileUpload.findByIdAndDelete(id);
-  // await deleteFromPinecone(id);
+  try {
+    await connectMongoDB();
 
-  return NextResponse.json({ message: "file deleted" }, { status: 200 });
+    // Delete all documents from MongoDB
+    const deleteResult = await FileUpload.deleteMany({});
+    console.log("Deleted from MongoDB:", deleteResult);
+
+    // Delete all vectors from Pinecone
+    await deleteAllFromPinecone();
+
+    return NextResponse.json(
+      {
+        message: "All data deleted successfully",
+        mongoResult: deleteResult,
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("Error deleting data:", error);
+    return NextResponse.json(
+      {
+        error: "Failed to delete data",
+        details: error.message,
+      },
+      { status: 500 }
+    );
+  }
 }
