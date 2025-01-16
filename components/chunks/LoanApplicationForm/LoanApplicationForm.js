@@ -19,6 +19,29 @@ const LoanApplicationForm = () => {
 
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [applicationId, setApplicationId] = useState(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+
+  const handleAnalyze = async () => {
+    if (!applicationId) return;
+
+    setAnalysisLoading(true);
+    try {
+      const response = await axios.post(`loan-analysis/${applicationId}`);
+      if (response.data.success) {
+        // You can handle the analysis result here
+        // For now, we'll just log it
+        console.log("Analysis completed:", response.data.analysis);
+
+        // You can redirect to the dashboard or show analysis
+        // router.push(`/dashboard/${applicationId}`);
+      }
+    } catch (error) {
+      console.error("Error analyzing application:", error);
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -82,7 +105,7 @@ const LoanApplicationForm = () => {
       });
 
       if (response.data.success) {
-        // Handle success (you can add notification or redirect)
+        setApplicationId(response.data.applicationId); // Now it's inside try block
         console.log("Application submitted successfully");
       }
     } catch (error) {
@@ -232,6 +255,17 @@ const LoanApplicationForm = () => {
         >
           {loading ? "Submitting..." : "Submit Application"}
         </button>
+
+        {applicationId && (
+          <button
+            type="button"
+            className={styles.analyzeButton}
+            onClick={handleAnalyze}
+            disabled={analysisLoading}
+          >
+            {analysisLoading ? "Analyzing..." : "Analyze Application"}
+          </button>
+        )}
       </form>
     </div>
   );

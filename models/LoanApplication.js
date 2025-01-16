@@ -1,5 +1,3 @@
-// models/LoanApplication.js
-
 import mongoose, { Schema } from "mongoose";
 
 const loanApplicationSchema = new Schema(
