@@ -31,11 +31,12 @@ const PdfProcessor = () => {
       console.log("Uploading PDF file...");
 
       setUploadProgress(50);
-      // await axios.post("files", saveData);
+      await axios.post("files", saveData);
 
       setUploadProgress(80);
       const aiAnalysis = await axios2.post("extractPdf", {
-        query: "Give me an analysis report",
+        query:
+          "Should I hire the candidate for 16 LPA Job? Analyse the candidate profile and tell me the pros and cons.",
       });
 
       console.log(aiAnalysis.data);
@@ -69,10 +70,6 @@ const PdfProcessor = () => {
       {uploadProgress === 100 && (
         <PdfViewer file={File?.[0]} extractedText={extractedText} />
       )}
-
-      <div className={styles.textContainer}>
-        <p>{extractedText}</p>
-      </div>
     </div>
   );
 };
