@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import connectMongoDB from "../../../../utils/mongoDB";
 import { searchInPinecone } from "../../../../utils/pineconeConfig";
 import FileUpload from "../../../../models/FileUpload";
+import mongoose from "mongoose";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -10,7 +11,7 @@ const openai = new OpenAI({
 
 // Function to vectorize the query text
 async function vectorizeQuery(query) {
-  const response = await openAi.embeddings.create({
+  const response = await openai.embeddings.create({
     model: "text-embedding-ada-002", // Adjust the model as per your requirements
     input: query,
     encoding_format: "float", // Ensure the format matches what Pinecone expects
@@ -53,7 +54,7 @@ export async function POST(req) {
     // Create a combined text from sorted chunks to send to OpenAI for further processing
     const combinedText = contentFromChunks.map((c) => c.chunkText);
 
-    const response = await openAi.chat.completions.create({
+    const response = await openai.chat.completions.create({
       messages: [
         {
           role: "system",
@@ -70,7 +71,9 @@ export async function POST(req) {
     });
 
     // Return the data as a JSON response
-    return NextResponse.json(response.choices[0].message);
+    return NextResponse.json(response.choices[0].message.content, {
+      status: 200,
+    });
   } catch (error) {
     console.error("PDF processing error:", error);
     return NextResponse.json(
