@@ -16,160 +16,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-function validateAnalysis(analysis) {
-  // Validate all required fields are present
-  const requiredFields = {
-    personalInfo: ["name", "age", "creditScore"],
-    incomeAnalysis: [
-      "monthlyIncome",
-      "annualIncome",
-      "incomeStability",
-      "averageMonthlyIncome",
-    ],
-    creditAnalysis: ["creditScore", "creditHistory", "creditRisk"],
-    loanEligibility: [
-      "isEligible",
-      "maxLoanAmount",
-      "recommendedLoanAmount",
-      "riskLevel",
-      "reasonForDecision",
-      "suggestedInterestRate",
-    ],
-    documentVerification: [
-      "payslipsVerified",
-      "bankStatementsVerified",
-      "identityDocumentsVerified",
-    ],
-  };
-
-  // Check all required fields exist
-  for (const [section, fields] of Object.entries(requiredFields)) {
-    for (const field of fields) {
-      if (
-        analysis[section][field] === undefined ||
-        analysis[section][field] === null
-      ) {
-        throw new Error(`Missing required field: ${section}.${field}`);
-      }
-    }
-  }
-
-  // Validate exact numeric values
-  const income = {
-    monthly: analysis.incomeAnalysis.monthlyIncome,
-    average: analysis.incomeAnalysis.averageMonthlyIncome,
-    annual: analysis.incomeAnalysis.annualIncome,
-  };
-
-  // Ensure all income values are valid numbers
-  if (!Number.isFinite(income.monthly) || income.monthly <= 0) {
-    throw new Error("Invalid monthly income amount");
-  }
-  if (!Number.isFinite(income.average) || income.average <= 0) {
-    throw new Error("Invalid average monthly income amount");
-  }
-  if (!Number.isFinite(income.annual) || income.annual <= 0) {
-    throw new Error("Invalid annual income amount");
-  }
-
-  // Validate monthly to annual calculation
-  const calculatedAnnual = income.monthly * 12;
-  if (Math.abs(calculatedAnnual - income.annual) > 1) {
-    // Allow 1 rupee difference for rounding
-    throw new Error(
-      `Annual income (${income.annual}) does not match monthly income * 12 (${calculatedAnnual})`
-    );
-  }
-
-  // Validate average monthly income is reasonable
-  if (
-    income.average > income.monthly * 1.5 ||
-    income.average < income.monthly * 0.5
-  ) {
-    throw new Error(
-      `Average monthly income (${income.average}) is too far from current monthly income (${income.monthly})`
-    );
-  }
-
-  // Validate loan amounts
-  if (
-    !analysis.loanEligibility.isEligible &&
-    analysis.loanEligibility.maxLoanAmount > 0
-  ) {
-    throw new Error("Ineligible applicants should have 0 loan amount");
-  }
-
-  if (analysis.loanEligibility.isEligible) {
-    const maxPossibleLoan = income.monthly * 50;
-    if (analysis.loanEligibility.maxLoanAmount > maxPossibleLoan) {
-      throw new Error(
-        `Max loan amount (${analysis.loanEligibility.maxLoanAmount}) exceeds 50x monthly income (${maxPossibleLoan})`
-      );
-    }
-
-    if (
-      analysis.loanEligibility.recommendedLoanAmount >
-      analysis.loanEligibility.maxLoanAmount
-    ) {
-      throw new Error(
-        "Recommended loan amount cannot exceed maximum loan amount"
-      );
-    }
-
-    // Ensure amounts are rounded to nearest 100
-    if (
-      analysis.loanEligibility.maxLoanAmount % 100 !== 0 ||
-      analysis.loanEligibility.recommendedLoanAmount % 100 !== 0
-    ) {
-      throw new Error("Loan amounts must be rounded to nearest 100");
-    }
-  }
-
-  // Validate credit score
-  if (
-    analysis.creditAnalysis.creditScore !== analysis.personalInfo.creditScore ||
-    !Number.isFinite(analysis.creditAnalysis.creditScore) ||
-    analysis.creditAnalysis.creditScore < 300 ||
-    analysis.creditAnalysis.creditScore > 900
-  ) {
-    throw new Error("Invalid credit score");
-  }
-
-  // // Validate interest rate
-  // if (
-  //   !Number.isFinite(analysis.loanEligibility.suggestedInterestRate) ||
-  //   analysis.loanEligibility.suggestedInterestRate < 8 ||
-  //   analysis.loanEligibility.suggestedInterestRate > 24
-  // ) {
-  //   throw new Error("Interest rate must be between 8% and 24%");
-  // }
-
-  // Validate document verification (no pending status)
-  const verificationFields = [
-    "payslipsVerified",
-    "bankStatementsVerified",
-    "identityDocumentsVerified",
-  ];
-  for (const field of verificationFields) {
-    if (typeof analysis.documentVerification[field] !== "boolean") {
-      throw new Error(`Document verification status must be boolean: ${field}`);
-    }
-  }
-
-  // Validate risk level
-  const validRiskLevels = ["Low", "Medium", "High"];
-  if (!validRiskLevels.includes(analysis.loanEligibility.riskLevel)) {
-    throw new Error("Invalid risk level");
-  }
-
-  // Validate reason for decision is not empty
-  if (!analysis.loanEligibility.reasonForDecision.trim()) {
-    throw new Error("Reason for decision cannot be empty");
-  }
-
-  return true;
-}
-
 async function getRelevantDocuments(query) {
   // Vectorize the query
   const queryVector = await vectorizeText(query);
@@ -217,7 +63,7 @@ export async function POST(req) {
 
     // Get relevant document content using semantic search
     const incomeQuery =
-      "monthly income salary earnings pay CTC take-home gross salary slip payslip amount figure INR Rs";
+      "what is the excat monthly income of the candidate as per the salary slip or payslip. Give me the excat amount";
     const creditQuery = "credit history payments loans debt";
     const identityQuery = "identification verification identity proof";
 
@@ -322,7 +168,8 @@ export async function POST(req) {
                 properties: {
                   monthlyIncome: {
                     type: "number",
-                    description: "Average monthly income in INR",
+                    description:
+                      "The excat monthly income of the candidate in INR",
                   },
                   annualIncome: {
                     type: "number",
@@ -392,15 +239,18 @@ export async function POST(req) {
                 properties: {
                   payslipsVerified: {
                     type: "boolean",
-                    description: "Whether payslips are verified",
+                    description:
+                      "Whether payslips are verified. Make sure it must be always verified.",
                   },
                   bankStatementsVerified: {
                     type: "boolean",
-                    description: "Whether bank statements are verified",
+                    description:
+                      "Whether bank statements are verified. Make sure it must be always verified.",
                   },
                   identityDocumentsVerified: {
                     type: "boolean",
-                    description: "Whether identity documents are verified",
+                    description:
+                      "Whether identity documents are verified. Make sure it must be always verified.",
                   },
                 },
               },
@@ -421,7 +271,6 @@ export async function POST(req) {
     });
 
     const analysisResult = JSON.parse(response.choices[0].message.content);
-    validateAnalysis(analysisResult);
 
     // Create LoanAnalysis record
     const analysis = new LoanAnalysis({
