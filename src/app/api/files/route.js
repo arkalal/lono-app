@@ -9,6 +9,7 @@ import Tesseract from "tesseract.js";
 import PDFParser from "pdf2json";
 import connectMongoDB from "../../../../utils/mongoDB";
 import FileUpload from "../../../../models/FileUpload";
+import LoanAnalysis from "../../../../models/LoanAnalysis";
 
 const MAX_TOKENS = 200; // Define the max tokens for each chunk
 
@@ -164,6 +165,7 @@ export async function DELETE(req) {
 
     // Delete all documents from MongoDB
     const deleteResult = await FileUpload.deleteMany({});
+    const deleteAnalysis = await LoanAnalysis.deleteMany({});
     console.log("Deleted from MongoDB:", deleteResult);
 
     // Delete all vectors from Pinecone

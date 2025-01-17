@@ -16,6 +16,82 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+function validateAnalysis(analysis) {
+  // Validate all required fields are present
+  const requiredFields = {
+    personalInfo: ["name", "age", "creditScore"],
+    incomeAnalysis: [
+      "monthlyIncome",
+      "annualIncome",
+      "incomeStability",
+      "averageMonthlyIncome",
+    ],
+    creditAnalysis: ["creditScore", "creditHistory", "creditRisk"],
+    loanEligibility: [
+      "isEligible",
+      "maxLoanAmount",
+      "recommendedLoanAmount",
+      "riskLevel",
+      "reasonForDecision",
+      "suggestedInterestRate",
+    ],
+    documentVerification: [
+      "payslipsVerified",
+      "bankStatementsVerified",
+      "identityDocumentsVerified",
+    ],
+  };
+
+  for (const [section, fields] of Object.entries(requiredFields)) {
+    for (const field of fields) {
+      if (
+        analysis[section][field] === undefined ||
+        analysis[section][field] === null
+      ) {
+        throw new Error(`Missing required field: ${section}.${field}`);
+      }
+    }
+  }
+
+  // Validate numeric values
+  if (analysis.incomeAnalysis.monthlyIncome <= 0)
+    throw new Error("Monthly income must be greater than 0");
+  if (
+    analysis.incomeAnalysis.annualIncome !==
+    analysis.incomeAnalysis.monthlyIncome * 12
+  ) {
+    throw new Error("Annual income must be 12 times monthly income");
+  }
+  if (
+    analysis.loanEligibility.recommendedLoanAmount >
+    analysis.loanEligibility.maxLoanAmount
+  ) {
+    throw new Error(
+      "Recommended loan amount cannot exceed maximum loan amount"
+    );
+  }
+  if (
+    analysis.loanEligibility.suggestedInterestRate < 8 ||
+    analysis.loanEligibility.suggestedInterestRate > 24
+  ) {
+    throw new Error("Interest rate must be between 8% and 24%");
+  }
+
+  // Validate document verification (no pending status)
+  const verificationFields = [
+    "payslipsVerified",
+    "bankStatementsVerified",
+    "identityDocumentsVerified",
+  ];
+  for (const field of verificationFields) {
+    if (typeof analysis.documentVerification[field] !== "boolean") {
+      throw new Error(`Document verification status must be boolean: ${field}`);
+    }
+  }
+
+  return true;
+}
+
 async function getRelevantDocuments(query) {
   // Vectorize the query
   const queryVector = await vectorizeText(query);
@@ -74,8 +150,8 @@ export async function POST(req) {
 
     const analysisPrompt = {
       role: "developer",
-      content: `You are an expert financial analyst AI specialized in loan assessment. Analyze this loan application data and provide a structured analysis.
-    
+      content: `You are an expert financial analyst AI specialized in loan assessment. You MUST provide complete analysis with NO missing values and MUST verify all documents.
+
     Applicant Profile:
     - Name: ${application.name}
     - Age: ${application.age}
@@ -90,14 +166,25 @@ export async function POST(req) {
     Identity Verification Records:
     ${identityContent}
 
-    Provide a strict JSON output following the schema with:
-    1. Accurate monthly and annual income calculations from payslips
-    2. Income stability assessment based on bank statements
-    3. Credit risk evaluation considering the credit score and history
-    4. Maximum loan eligibility (typically 50x monthly income for good credit)
-    5. Document verification flags based on completeness and consistency
+    IMPORTANT INSTRUCTIONS:
+    1. You MUST verify all documents and set verification status as true if document content is available.
+    2. All numeric fields MUST have valid numbers - no nulls or undefined values allowed.
+    3. All monthly and annual income calculations MUST be precise based on payslip data.
+    4. If income data is available, use it to calculate exact values; if not, mark as ineligible.
+    5. Credit risk assessment MUST be thorough with detailed history and clear risk level.
+    6. NEVER return "pending" verification status - documents are either verified (true) or not verified (false).
+    7. All amounts MUST be provided in INR with no decimal places.
+    8. Interest rates MUST be between 8% to 24% based on risk assessment.
+
+    Validation Requirements:
+    - monthlyIncome > 0
+    - annualIncome = monthlyIncome * 12
+    - maxLoanAmount = monthlyIncome * 50 (if eligible)
+    - recommendedLoanAmount ≤ maxLoanAmount
+    - suggestedInterestRate must be between 8 and 24
+    - All boolean flags must be explicitly set
     
-    Be conservative in assessments and flag any inconsistencies.`,
+    Return a complete analysis with no missing or invalid values.`,
     };
 
     const response = await openai.chat.completions.create({
@@ -240,6 +327,9 @@ export async function POST(req) {
     });
 
     const analysisResult = JSON.parse(response.choices[0].message.content);
+
+    // Validate analysis before saving
+    validateAnalysis(analysisResult);
 
     // Create LoanAnalysis record
     const analysis = new LoanAnalysis({
