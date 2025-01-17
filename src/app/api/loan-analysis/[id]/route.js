@@ -42,6 +42,7 @@ function validateAnalysis(analysis) {
     ],
   };
 
+  // Check all required fields exist
   for (const [section, fields] of Object.entries(requiredFields)) {
     for (const field of fields) {
       if (
@@ -53,29 +54,95 @@ function validateAnalysis(analysis) {
     }
   }
 
-  // Validate numeric values
-  if (analysis.incomeAnalysis.monthlyIncome <= 0)
-    throw new Error("Monthly income must be greater than 0");
-  if (
-    analysis.incomeAnalysis.annualIncome !==
-    analysis.incomeAnalysis.monthlyIncome * 12
-  ) {
-    throw new Error("Annual income must be 12 times monthly income");
+  // Validate exact numeric values
+  const income = {
+    monthly: analysis.incomeAnalysis.monthlyIncome,
+    average: analysis.incomeAnalysis.averageMonthlyIncome,
+    annual: analysis.incomeAnalysis.annualIncome,
+  };
+
+  // Ensure all income values are valid numbers
+  if (!Number.isFinite(income.monthly) || income.monthly <= 0) {
+    throw new Error("Invalid monthly income amount");
   }
-  if (
-    analysis.loanEligibility.recommendedLoanAmount >
-    analysis.loanEligibility.maxLoanAmount
-  ) {
+  if (!Number.isFinite(income.average) || income.average <= 0) {
+    throw new Error("Invalid average monthly income amount");
+  }
+  if (!Number.isFinite(income.annual) || income.annual <= 0) {
+    throw new Error("Invalid annual income amount");
+  }
+
+  // Validate monthly to annual calculation
+  const calculatedAnnual = income.monthly * 12;
+  if (Math.abs(calculatedAnnual - income.annual) > 1) {
+    // Allow 1 rupee difference for rounding
     throw new Error(
-      "Recommended loan amount cannot exceed maximum loan amount"
+      `Annual income (${income.annual}) does not match monthly income * 12 (${calculatedAnnual})`
     );
   }
+
+  // Validate average monthly income is reasonable
   if (
-    analysis.loanEligibility.suggestedInterestRate < 8 ||
-    analysis.loanEligibility.suggestedInterestRate > 24
+    income.average > income.monthly * 1.5 ||
+    income.average < income.monthly * 0.5
   ) {
-    throw new Error("Interest rate must be between 8% and 24%");
+    throw new Error(
+      `Average monthly income (${income.average}) is too far from current monthly income (${income.monthly})`
+    );
   }
+
+  // Validate loan amounts
+  if (
+    !analysis.loanEligibility.isEligible &&
+    analysis.loanEligibility.maxLoanAmount > 0
+  ) {
+    throw new Error("Ineligible applicants should have 0 loan amount");
+  }
+
+  if (analysis.loanEligibility.isEligible) {
+    const maxPossibleLoan = income.monthly * 50;
+    if (analysis.loanEligibility.maxLoanAmount > maxPossibleLoan) {
+      throw new Error(
+        `Max loan amount (${analysis.loanEligibility.maxLoanAmount}) exceeds 50x monthly income (${maxPossibleLoan})`
+      );
+    }
+
+    if (
+      analysis.loanEligibility.recommendedLoanAmount >
+      analysis.loanEligibility.maxLoanAmount
+    ) {
+      throw new Error(
+        "Recommended loan amount cannot exceed maximum loan amount"
+      );
+    }
+
+    // Ensure amounts are rounded to nearest 100
+    if (
+      analysis.loanEligibility.maxLoanAmount % 100 !== 0 ||
+      analysis.loanEligibility.recommendedLoanAmount % 100 !== 0
+    ) {
+      throw new Error("Loan amounts must be rounded to nearest 100");
+    }
+  }
+
+  // Validate credit score
+  if (
+    analysis.creditAnalysis.creditScore !== analysis.personalInfo.creditScore ||
+    !Number.isFinite(analysis.creditAnalysis.creditScore) ||
+    analysis.creditAnalysis.creditScore < 300 ||
+    analysis.creditAnalysis.creditScore > 900
+  ) {
+    throw new Error("Invalid credit score");
+  }
+
+  // // Validate interest rate
+  // if (
+  //   !Number.isFinite(analysis.loanEligibility.suggestedInterestRate) ||
+  //   analysis.loanEligibility.suggestedInterestRate < 8 ||
+  //   analysis.loanEligibility.suggestedInterestRate > 24
+  // ) {
+  //   throw new Error("Interest rate must be between 8% and 24%");
+  // }
 
   // Validate document verification (no pending status)
   const verificationFields = [
@@ -87,6 +154,17 @@ function validateAnalysis(analysis) {
     if (typeof analysis.documentVerification[field] !== "boolean") {
       throw new Error(`Document verification status must be boolean: ${field}`);
     }
+  }
+
+  // Validate risk level
+  const validRiskLevels = ["Low", "Medium", "High"];
+  if (!validRiskLevels.includes(analysis.loanEligibility.riskLevel)) {
+    throw new Error("Invalid risk level");
+  }
+
+  // Validate reason for decision is not empty
+  if (!analysis.loanEligibility.reasonForDecision.trim()) {
+    throw new Error("Reason for decision cannot be empty");
   }
 
   return true;
@@ -138,7 +216,8 @@ export async function POST(req) {
     }
 
     // Get relevant document content using semantic search
-    const incomeQuery = "monthly income salary earnings pay";
+    const incomeQuery =
+      "monthly income salary earnings pay CTC take-home gross salary slip payslip amount figure INR Rs";
     const creditQuery = "credit history payments loans debt";
     const identityQuery = "identification verification identity proof";
 
@@ -150,12 +229,45 @@ export async function POST(req) {
 
     const analysisPrompt = {
       role: "developer",
-      content: `You are an expert financial analyst AI specialized in loan assessment. You MUST provide complete analysis with NO missing values and MUST verify all documents.
+      content: `You are a financial analyst AI specialized in loan assessment. EXTRACT EXACT NUMBERS from the documents.
 
     Applicant Profile:
     - Name: ${application.name}
     - Age: ${application.age}
     - Credit Score: ${application.creditScore}
+    
+    STEP BY STEP ANALYSIS REQUIRED:
+
+    1. Income Analysis:
+    - First, identify ALL salary/income amounts in the payslips
+    - Calculate average of last 3 months' salary EXACTLY
+    - Monthly income must be the latest salary figure
+    - SET averageMonthlyIncome as the 3-month average
+    - Ensure monthlyIncome matches the latest payslip amount
+    - Annual income MUST BE exactly 12 times the monthly income
+    
+    2. Document Analysis:
+    - For each payslip, extract the exact amount
+    - For bank statements, verify regular salary credits
+    - Cross verify amounts between payslips and bank statements
+    - Document is verified ONLY if amount is clearly visible and matches
+    
+    3. Loan Amount Calculation:
+    - maxLoanAmount = monthlyIncome * 50 (if eligible)
+    - recommendedLoanAmount = maxLoanAmount * 0.8
+    - Amounts must be rounded to nearest 100
+    
+    4. Verification Rules:
+    - Mark document as verified(true) ONLY if exact amounts are found
+    - If amounts are unclear or missing, mark as not verified(false)
+    - NO PENDING STATUS ALLOWED
+    
+    MANDATORY VALIDATION RULES:
+    1. All amounts must be exact numbers from documents
+    2. No approximations or assumptions allowed
+    3. Verification must be true/false only
+    4. Monthly income must match latest payslip exactly
+    5. Cross-verify all amounts across documents
     
     Income Documents Analysis:
     ${incomeContent}
@@ -166,25 +278,7 @@ export async function POST(req) {
     Identity Verification Records:
     ${identityContent}
 
-    IMPORTANT INSTRUCTIONS:
-    1. You MUST verify all documents and set verification status as true if document content is available.
-    2. All numeric fields MUST have valid numbers - no nulls or undefined values allowed.
-    3. All monthly and annual income calculations MUST be precise based on payslip data.
-    4. If income data is available, use it to calculate exact values; if not, mark as ineligible.
-    5. Credit risk assessment MUST be thorough with detailed history and clear risk level.
-    6. NEVER return "pending" verification status - documents are either verified (true) or not verified (false).
-    7. All amounts MUST be provided in INR with no decimal places.
-    8. Interest rates MUST be between 8% to 24% based on risk assessment.
-
-    Validation Requirements:
-    - monthlyIncome > 0
-    - annualIncome = monthlyIncome * 12
-    - maxLoanAmount = monthlyIncome * 50 (if eligible)
-    - recommendedLoanAmount ≤ maxLoanAmount
-    - suggestedInterestRate must be between 8 and 24
-    - All boolean flags must be explicitly set
-    
-    Return a complete analysis with no missing or invalid values.`,
+    Provide ALL numbers in the exact format found in documents with no modifications.`,
     };
 
     const response = await openai.chat.completions.create({
@@ -327,8 +421,6 @@ export async function POST(req) {
     });
 
     const analysisResult = JSON.parse(response.choices[0].message.content);
-
-    // Validate analysis before saving
     validateAnalysis(analysisResult);
 
     // Create LoanAnalysis record
